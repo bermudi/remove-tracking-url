@@ -1,0 +1,25 @@
+{
+  "manifest_version": 2,
+  "name": "URL Cleaner",
+  "version": "1.0",
+  "description": "Removes query parameters from URLs in the current window's tabs.",
+
+  "permissions": ["tabs", "notifications"],
+
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+
+  "browser_action": {
+    "default_icon": {
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "Clean All Tab URLs"
+  },
+
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  }
+}
