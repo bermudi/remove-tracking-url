@@ -4,7 +4,16 @@
   "version": "1.0",
   "description": "Removes query parameters from URLs in the current window's tabs.",
 
-  "permissions": ["tabs", "notifications"],
+  "permissions": [
+    "tabs",
+    "notifications",
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "*://mail.google.com/*",
+    "*://newslink.reuters.com/*",
+    "*://www.reuters.com/*"
+  ],
 
   "background": {
     "scripts": ["background.js"],
@@ -15,7 +24,8 @@
     "default_icon": {
       "48": "icons/icon-48.png"
     },
-    "default_title": "Clean All Tab URLs"
+    "default_title": "URL Cleaner",
+    "default_popup": "popup.html"
   },
 
   "icons": {

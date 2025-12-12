@@ -27,10 +27,10 @@ function cleanUrl(urlString) {
       // Return the cleaned URL only if it actually changed
       // (Handles cases like url ending in '?' but no params)
       return cleanedUrlString !== originalUrl ? cleanedUrlString : null;
-    } else {
-      // No query string found, nothing to clean
-      return null;
     }
+
+    // No query string found, nothing to clean
+    return null;
   } catch (e) {
     // Handle potential errors from new URL() constructor (e.g., invalid URL format)
     // or other unexpected issues during processing.
@@ -38,6 +38,90 @@ function cleanUrl(urlString) {
     return null;
   }
 }
+
+function isGmailInitiator(details) {
+  const initiator =
+    details.initiator || details.originUrl || details.documentUrl || "";
+  return typeof initiator === "string" && initiator.includes("mail.google.com");
+}
+
+function decodeReutersNewslinkUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    if (url.hostname !== "newslink.reuters.com") {
+      return null;
+    }
+
+    const segments = url.pathname.split("/").filter(Boolean);
+    for (const segment of segments) {
+      // Reuters uses base64url-ish encoding without padding.
+      // The decoded content is typically a full https://... URL.
+      if (!segment.startsWith("aHR0")) {
+        continue;
+      }
+
+      const normalized = segment.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = normalized.padEnd(
+        normalized.length + ((4 - (normalized.length % 4)) % 4),
+        "=",
+      );
+      const decoded = atob(padded);
+
+      if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+        return decoded;
+      }
+    }
+
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function isEnabled() {
+  try {
+    const { enabled } = await browser.storage.local.get({ enabled: true });
+    return Boolean(enabled);
+  } catch (e) {
+    // If storage fails for any reason, default to enabled.
+    return true;
+  }
+}
+
+browser.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    // Only intercept Gmail-initiated top-level navigations.
+    if (details.type !== "main_frame") {
+      return;
+    }
+    if (!isGmailInitiator(details)) {
+      return;
+    }
+
+    // Must return a promise for async decision (supported in Firefox).
+    return isEnabled().then((enabled) => {
+      if (!enabled) {
+        return;
+      }
+
+      const decoded = decodeReutersNewslinkUrl(details.url);
+      const candidate = decoded || details.url;
+      const cleaned = cleanUrl(candidate);
+      if (!cleaned) {
+        return;
+      }
+
+      // Avoid loops: do not redirect to the same URL.
+      if (cleaned === details.url) {
+        return;
+      }
+
+      return { redirectUrl: cleaned };
+    });
+  },
+  { urls: ["<all_urls>"] },
+  ["blocking"],
+);
 
 /**
  * Cleans URLs of all eligible tabs in the current window by removing query strings.
@@ -134,12 +218,14 @@ async function cleanAllTabs() {
 
 // --- Event Listener ---
 
-// Listen for clicks on the browser action icon (toolbar button)
-browser.browserAction.onClicked.addListener((tab) => {
-  // The 'tab' argument here is the tab that was active when the icon was clicked.
-  // We still want to clean *all* tabs in the current window as per the function's logic.
-  console.log("Browser action clicked. Starting cleanAllTabs...");
-  cleanAllTabs();
+browser.runtime.onMessage.addListener((message) => {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+
+  if (message.type === "cleanAllTabs") {
+    return cleanAllTabs();
+  }
 });
 
 // Optional: Log when the extension is installed or updated

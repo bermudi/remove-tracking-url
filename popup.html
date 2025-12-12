@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>URL Cleaner</title>
+    <style>
+      body {
+        font: 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 0;
+        padding: 8px;
+        width: 200px;
+        min-width: 200px;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .label {
+        font-weight: 600;
+      }
+
+      button {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #c7c7c7;
+        background: #f7f7f7;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #efefef;
+      }
+
+      .status {
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+      }
+
+      .status.on {
+        color: #0a7a0a;
+      }
+
+      .status.off {
+        color: #9b0000;
+      }
+
+      .hint {
+        margin-top: 10px;
+        color: #666;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <div class="label">Enabled</div>
+      <div>
+        <span id="statusText" class="status">…</span>
+        <label style="margin-left: 8px">
+          <input id="enabledToggle" type="checkbox" />
+        </label>
+      </div>
+    </div>
+
+    <button id="cleanAllTabsBtn" type="button">Clean all tabs now</button>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
