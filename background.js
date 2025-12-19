@@ -78,6 +78,167 @@ function decodeReutersNewslinkUrl(urlString) {
   }
 }
 
+function tryDecodeUrlString(value) {
+  if (typeof value !== "string" || !value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  try {
+    const decoded = decodeURIComponent(trimmed);
+    if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+      return decoded;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    const normalized = trimmed.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "=",
+    );
+    const decoded = atob(padded);
+    if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+      return decoded;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return null;
+}
+
+function unwrapTrackingUrl(urlString) {
+  let current = urlString;
+
+  for (let i = 0; i < 5; i++) {
+    const reutersDecoded = decodeReutersNewslinkUrl(current);
+    if (reutersDecoded) {
+      current = reutersDecoded;
+      continue;
+    }
+
+    let url;
+    try {
+      url = new URL(current);
+    } catch (e) {
+      break;
+    }
+
+    const paramsToTry = [
+      "url",
+      "u",
+      "q",
+      "redirect",
+      "redirect_url",
+      "redirectUrl",
+      "redir",
+      "destination",
+      "dest",
+      "target",
+      "continue",
+      "next",
+      "link",
+    ];
+
+    let found = null;
+    for (const key of paramsToTry) {
+      const value = url.searchParams.get(key);
+      const decoded = tryDecodeUrlString(value);
+      if (decoded) {
+        found = decoded;
+        break;
+      }
+    }
+
+    if (!found) {
+      break;
+    }
+
+    current = found;
+  }
+
+  return current;
+}
+
+const gmailInitiatedTabExpirations = new Map();
+
+function markTabAsGmailInitiated(tabId) {
+  if (typeof tabId !== "number" || tabId < 0) {
+    return;
+  }
+  gmailInitiatedTabExpirations.set(tabId, Date.now() + 2 * 60 * 1000);
+}
+
+function isTabMarkedGmailInitiated(tabId) {
+  if (typeof tabId !== "number" || tabId < 0) {
+    return false;
+  }
+
+  const expiresAt = gmailInitiatedTabExpirations.get(tabId);
+  if (!expiresAt) {
+    return false;
+  }
+
+  if (Date.now() > expiresAt) {
+    gmailInitiatedTabExpirations.delete(tabId);
+    return false;
+  }
+
+  return true;
+}
+
+function shouldSkipUrlForGmailActions(urlString) {
+  try {
+    const url = new URL(urlString);
+
+    // Gmail UI actions (Show original, Download message, etc.) rely on query params.
+    if (url.hostname === "mail.google.com") {
+      return true;
+    }
+
+    // Avoid breaking other Google apps by stripping required query params.
+    const isGoogleDomain =
+      url.hostname === "google.com" ||
+      url.hostname.endsWith(".google.com") ||
+      url.hostname.endsWith(".googleusercontent.com");
+
+    // Exception: allow Google's /url redirector to be unwrapped/cleaned.
+    if (url.hostname === "www.google.com" && url.pathname === "/url") {
+      return false;
+    }
+
+    if (isGoogleDomain) {
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    return true;
+  }
+}
+
+function shouldPreserveQueryForWrapperHop(urlString) {
+  try {
+    const url = new URL(urlString);
+
+    // Substack app-link uses query params (publication_id, post_id, token) to reach the real post.
+    if (url.hostname === "substack.com" && url.pathname.startsWith("/app-link/")) {
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    return true;
+  }
+}
+
 async function isEnabled() {
   try {
     const { enabled } = await browser.storage.local.get({ enabled: true });
@@ -94,7 +255,18 @@ browser.webRequest.onBeforeRequest.addListener(
     if (details.type !== "main_frame") {
       return;
     }
-    if (!isGmailInitiator(details)) {
+
+    if (shouldSkipUrlForGmailActions(details.url)) {
+      return;
+    }
+
+    const initiatedByGmail = isGmailInitiator(details);
+    if (initiatedByGmail) {
+      markTabAsGmailInitiated(details.tabId);
+    }
+
+    const eligible = initiatedByGmail || isTabMarkedGmailInitiated(details.tabId);
+    if (!eligible) {
       return;
     }
 
@@ -104,8 +276,11 @@ browser.webRequest.onBeforeRequest.addListener(
         return;
       }
 
-      const decoded = decodeReutersNewslinkUrl(details.url);
-      const candidate = decoded || details.url;
+      if (shouldPreserveQueryForWrapperHop(details.url)) {
+        return;
+      }
+
+      const candidate = unwrapTrackingUrl(details.url);
       const cleaned = cleanUrl(candidate);
       if (!cleaned) {
         return;
