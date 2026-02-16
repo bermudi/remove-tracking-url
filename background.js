@@ -39,10 +39,14 @@ function cleanUrl(urlString) {
   }
 }
 
+function isGmailUrl(urlString) {
+  return typeof urlString === "string" && urlString.includes("mail.google.com");
+}
+
 function isGmailInitiator(details) {
   const initiator =
     details.initiator || details.originUrl || details.documentUrl || "";
-  return typeof initiator === "string" && initiator.includes("mail.google.com");
+  return isGmailUrl(initiator);
 }
 
 function decodeReutersNewslinkUrl(urlString) {
@@ -173,7 +177,7 @@ function markTabAsGmailInitiated(tabId) {
   if (typeof tabId !== "number" || tabId < 0) {
     return;
   }
-  gmailInitiatedTabExpirations.set(tabId, Date.now() + 2 * 60 * 1000);
+  gmailInitiatedTabExpirations.set(tabId, Date.now() + 15 * 1000);
 }
 
 function isTabMarkedGmailInitiated(tabId) {
@@ -233,6 +237,18 @@ function shouldPreserveQueryForWrapperHop(urlString) {
       return true;
     }
 
+    // Prolific completion/study links encode participant + study metadata in the query string.
+    const prolificHostnames = ["prolific.com", "prolific.co"];
+    const isProlificDomain = prolificHostnames.some((root) =>
+      url.hostname === root ||
+      url.hostname === `www.${root}` ||
+      url.hostname.endsWith(`.${root}`),
+    );
+
+    if (isProlificDomain) {
+      return true;
+    }
+
     return false;
   } catch (e) {
     return true;
@@ -261,11 +277,15 @@ browser.webRequest.onBeforeRequest.addListener(
     }
 
     const initiatedByGmail = isGmailInitiator(details);
+    const markedByGmail = isTabMarkedGmailInitiated(details.tabId);
     if (initiatedByGmail) {
       markTabAsGmailInitiated(details.tabId);
+    } else if (markedByGmail) {
+      // Allow a single follow-up request after a Gmail click (e.g., redirect hop).
+      gmailInitiatedTabExpirations.delete(details.tabId);
     }
 
-    const eligible = initiatedByGmail || isTabMarkedGmailInitiated(details.tabId);
+    const eligible = initiatedByGmail || markedByGmail;
     if (!eligible) {
       return;
     }
